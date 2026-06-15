@@ -1,0 +1,18 @@
+{
+  "name": "lecture-deck-marketplace",
+  "owner": {
+    "name": "황상현 (Sanghyun Hwang)",
+    "email": "josh.hwang1@gmail.com"
+  },
+  "metadata": {
+    "description": "HTML 강의안 제작 도구 모음",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "lecture-deck",
+      "source": "./",
+      "description": "마크다운으로 다크 'Obsidian' 스타일 HTML 강의안을 만드는 스킬. 자립형 deck.html·출처 표기·강사 노트·PDF·인터랙션 포함."
+    }
+  ]
+}

@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>강의안 에디터</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+<link rel="stylesheet" href="slides.css" />
+<!--
+  editor.html — 강의안 에디터 (3패널: 필름스트립 · 편집 · 실시간 미리보기)
+  · slides.md 를 불러와 편집하고, '폴더 연결' 후 같은 slides.md 에 바로 저장합니다.
+  · 미리보기/발표/인쇄는 deck.html 과 동일한 slides.css·engine.js 를 써서 100% 일치합니다.
+  · 크롬/엣지 데스크톱에서 localhost 로 열 때 '폴더 저장'이 동작합니다(File System Access API).
+-->
+<style>
+  :root{
+    --ui-bg:#16181c; --ui-panel:#1f2228; --ui-panel-2:#23272e; --ui-line:rgba(255,255,255,.10);
+    --ui-fg:#ffffff; --ui-muted:rgba(255,255,255,.5); --ui-accent:#3b82f6; --ui-accent-2:#22d3ee;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{background:var(--ui-bg);color:var(--ui-fg);font-family:var(--font-sans);overflow:hidden;display:flex;flex-direction:column}
+  button{font-family:inherit;cursor:pointer}
+
+  /* ── 툴바 ─────────────────────────────────── */
+  #toolbar{display:flex;align-items:center;gap:8px;padding:9px 14px;background:var(--ui-panel);border-bottom:1px solid var(--ui-line);flex-wrap:wrap}
+  .tb-group{display:flex;align-items:center;gap:5px;padding-right:9px;margin-right:3px;border-right:1px solid var(--ui-line)}
+  .tb-group:last-child{border-right:none}
+  .btn{display:inline-flex;align-items:center;gap:6px;background:var(--ui-panel-2);color:var(--ui-fg);border:1px solid var(--ui-line);border-radius:8px;padding:7px 11px;font-size:13px;line-height:1;transition:.12s}
+  .btn:hover{background:#252b37;border-color:#3a4150}
+  .btn.primary{background:var(--ui-accent);border-color:var(--ui-accent);color:#fff}
+  .btn.primary:hover{filter:brightness(1.08)}
+  .btn.ok{background:var(--ui-accent-2);border-color:var(--ui-accent-2);color:#04210f}
+  .btn .ic{font-size:15px}
+  .title-tag{font-size:12px;color:var(--ui-muted);margin-right:auto;padding-left:6px;font-weight:600;letter-spacing:.02em}
+  select.btn{appearance:none;padding-right:26px;background-image:linear-gradient(45deg,transparent 50%,var(--ui-muted) 50%),linear-gradient(135deg,var(--ui-muted) 50%,transparent 50%);background-position:calc(100% - 14px) 53%,calc(100% - 9px) 53%;background-size:5px 5px,5px 5px;background-repeat:no-repeat}
+
+  /* ── 본문 3패널 ───────────────────────────── */
+  #main{flex:1;display:grid;grid-template-columns:188px 1fr 1.25fr;min-height:0}
+  /* 필름스트립 */
+  #film{background:var(--ui-panel);border-right:1px solid var(--ui-line);overflow-y:auto;padding:10px}
+  .film-item{position:relative;margin-bottom:10px;border-radius:8px;overflow:hidden;cursor:pointer;border:2px solid transparent;background:#000}
+  .film-item.cur{border-color:var(--ui-accent)}
+  .film-item .holder{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden}
+  .film-item .mini{position:absolute;top:0;left:0;width:1280px;height:720px;transform-origin:top left;pointer-events:none}
+  .film-item .idx{position:absolute;top:4px;left:6px;z-index:2;font-size:11px;color:#fff;background:rgba(0,0,0,.6);padding:1px 6px;border-radius:99px}
+
+  /* 편집 패널 */
+  #edit{display:flex;flex-direction:column;background:var(--ui-panel-2);border-right:1px solid var(--ui-line);min-width:0}
+  #fmtbar{display:flex;gap:4px;padding:8px 10px;border-bottom:1px solid var(--ui-line);flex-wrap:wrap}
+  .fbtn{background:#11141b;color:var(--ui-fg);border:1px solid var(--ui-line);border-radius:6px;padding:5px 9px;font-size:12.5px}
+  .fbtn:hover{background:#222836}
+  #editor{flex:1;width:100%;resize:none;border:none;outline:none;background:transparent;color:#e7e9ee;
+    font-family:var(--font-mono);font-size:14.5px;line-height:1.7;padding:16px 18px;tab-size:2}
+  #editor::placeholder{color:#586074}
+
+  /* 미리보기 패널 */
+  #preview{position:relative;background:#0a0b0e;display:flex;align-items:center;justify-content:center;overflow:hidden}
+  #pv-scaler{width:1280px;height:720px;position:absolute;transform-origin:top left}
+  #pv-scaler .slide{display:flex}
+  #pv-hint{position:absolute;top:10px;left:12px;font-size:11px;color:var(--ui-muted);background:rgba(0,0,0,.4);padding:3px 9px;border-radius:99px}
+
+  /* ── 상태바 ───────────────────────────────── */
+  #status{display:flex;align-items:center;gap:14px;padding:6px 14px;background:var(--ui-panel);border-top:1px solid var(--ui-line);font-size:12px;color:var(--ui-muted)}
+  #status .dot{width:8px;height:8px;border-radius:50%;background:#facc15}
+  #status .dot.saved{background:var(--ui-accent-2)}
+  #status .grow{margin-left:auto}
+
+  /* ── 발표/개요 오버레이 ───────────────────── */
+  .overlay{position:fixed;inset:0;z-index:100;background:#000;display:none}
+  .overlay.show{display:block}
+  #present-scaler{position:absolute;transform-origin:top left;width:1280px;height:720px}
+  #present-scaler .slide{display:flex}
+  #ov{background:#15171d;overflow:auto;padding:30px}
+  #ov-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:18px}
+  #ov .thumb{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;cursor:pointer;background:#000;border:2px solid transparent}
+  #ov .thumb:hover{border-color:var(--ui-accent)}
+  #ov .thumb .mini{position:absolute;top:0;left:0;width:1280px;height:720px;transform-origin:top left;pointer-events:none}
+  #ov .thumb .num{position:absolute;bottom:6px;right:8px;z-index:2;font-size:12px;color:#fff;background:rgba(0,0,0,.6);padding:1px 7px;border-radius:99px}
+  .ov-close{position:fixed;top:16px;right:18px;z-index:101}
+
+  /* 토스트 */
+  #toast{position:fixed;bottom:54px;left:50%;transform:translateX(-50%);z-index:200;background:#1b1f29;color:#fff;border:1px solid var(--ui-line);padding:10px 18px;border-radius:10px;font-size:13px;opacity:0;transition:.25s;pointer-events:none}
+  #toast.show{opacity:1}
+
+  @media (max-width:920px){#main{grid-template-columns:0 1fr 0}#film,#preview{display:none}}
+</style>
+</head>
+<body>
+  <div id="toolbar">
+    <span class="title-tag" id="titletag">강의안 에디터</span>
+    <div class="tb-group">
+      <button class="btn" id="b-connect"><span class="ic">📁</span>폴더 연결</button>
+      <button class="btn ok" id="b-save"><span class="ic">💾</span>저장</button>
+    </div>
+    <div class="tb-group">
+      <button class="btn" id="b-add"><span class="ic">＋</span>슬라이드</button>
+      <button class="btn" id="b-dup" title="복제">⧉</button>
+      <button class="btn" id="b-del" title="삭제">🗑</button>
+      <button class="btn" id="b-up" title="위로">↑</button>
+      <button class="btn" id="b-down" title="아래로">↓</button>
+    </div>
+    <div class="tb-group">
+      <button class="btn" id="b-img"><span class="ic">🖼</span>이미지</button>
+      <select class="btn" id="b-layout" title="레이아웃">
+        <option value="">레이아웃…</option>
+        <option value="title">표지</option>
+        <option value="section">섹션 구분</option>
+        <option value="center">가운데 정렬</option>
+        <option value="dark">어두운 배경</option>
+        <option value="__bg">배경사진 풀화면</option>
+        <option value="__cols">2단 컬럼</option>
+        <option value="__plain">기본(지시어 제거)</option>
+      </select>
+    </div>
+    <div class="tb-group">
+      <button class="btn" id="b-ov"><span class="ic">▦</span>개요</button>
+      <button class="btn" id="b-present"><span class="ic">▶</span>발표</button>
+      <button class="btn" id="b-print" title="인쇄(PDF)">🖨</button>
+    </div>
+  </div>
+
+  <div id="main">
+    <div id="film" aria-label="슬라이드 목록"></div>
+    <div id="edit">
+      <div id="fmtbar">
+        <button class="fbtn" data-fmt="kicker">⎯ 라벨</button>
+        <button class="fbtn" data-fmt="h2">제목</button>
+        <button class="fbtn" data-fmt="bold"><b>굵게</b></button>
+        <button class="fbtn" data-fmt="em">강조</button>
+        <button class="fbtn" data-fmt="ul">• 목록</button>
+        <button class="fbtn" data-fmt="quote">❝ 인용</button>
+        <button class="fbtn" data-fmt="stat">:: 통계</button>
+        <button class="fbtn" data-fmt="cols">+++ 2단</button>
+        <button class="fbtn" data-fmt="note">??? 노트</button>
+      </div>
+      <textarea id="editor" spellcheck="false" placeholder="여기에 슬라이드 내용을 마크다운으로 작성하세요…"></textarea>
+    </div>
+    <div id="preview">
+      <div id="pv-hint">미리보기</div>
+      <div id="pv-scaler"></div>
+    </div>
+  </div>
+
+  <div id="status">
+    <span class="dot" id="s-dot"></span>
+    <span id="s-file">불러오는 중…</span>
+    <span id="s-pos"></span>
+    <span class="grow"></span>
+    <span id="s-mode"></span>
+  </div>
+
+  <!-- 발표 오버레이 -->
+  <div class="overlay" id="present">
+    <div id="present-scaler"></div>
+  </div>
+  <!-- 개요 오버레이 -->
+  <div class="overlay" id="ov">
+    <button class="btn ov-close" id="ov-close">✕ 닫기 (Esc)</button>
+    <div id="ov-grid"></div>
+  </div>
+
+  <div id="toast"></div>
+
+  <script src="engine.js"></script>
+  <script>
+  "use strict";
+  const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
+  const STARTER="## 새 슬라이드\n\n- 내용을 입력하세요";
+
+  const A={
+    chunks:[], cur:0, dir:null, dirty:false,
+    brand:""
+  };
+
+  /* ── 불러오기 ───────────────────────────── */
+  async function load(){
+    let md="";
+    try{ md=await (await fetch("slides.md",{cache:"no-store"})).text(); }
+    catch{ md=document.getElementById("seed")?.textContent||""; }
+    A.chunks = (Deck.splitSlides(md).length? Deck.splitSlides(md):[STARTER]);
+    A.brand = (md.match(/^#\s+(.+)$/m)?.[1]||"").slice(0,40);
+    renderFilm(); select(0);
+    setFile(md? "slides.md 불러옴 (읽기 전용 — 저장하려면 '폴더 연결')":"새 문서");
+  }
+
+  const fullMd = ()=>A.chunks.join("\n\n---\n\n");
+
+  /* ── 미리보기 ───────────────────────────── */
+  function renderPreview(){
+    const s=Deck.parseSlide(A.chunks[A.cur]||"");
+    const sc=$("#pv-scaler"); sc.innerHTML="";
+    const el=Deck.slideEl(s, A.cur, A.chunks.length, A.brand); el.classList.add("is-active");
+    sc.appendChild(el);
+    fitPreview();
+  }
+  function fitPreview(){
+    const pane=$("#preview"); const pad=24;
+    const k=Math.min((pane.clientWidth-pad)/1280,(pane.clientHeight-pad)/720);
+    const sc=$("#pv-scaler");
+    sc.style.transform=`scale(${k})`;
+    sc.style.left=`${(pane.clientWidth-1280*k)/2}px`;
+    sc.style.top=`${(pane.clientHeight-720*k)/2}px`;
+  }
+
+  /* ── 필름스트립 ─────────────────────────── */
+  function renderFilm(){
+    const film=$("#film"); film.innerHTML="";
+    A.chunks.forEach((c,i)=>{
+      const it=document.createElement("div"); it.className="film-item"+(i===A.cur?" cur":"");
+      it.innerHTML=`<div class="holder"></div><span class="idx">${i+1}</span>`;
+      const mini=document.createElement("div"); mini.className="mini";
+      mini.appendChild(Deck.slideEl(Deck.parseSlide(c),i,A.chunks.length,A.brand)).classList.add("is-active");
+      it.querySelector(".holder").appendChild(mini);
+      it.onclick=()=>select(i);
+      film.appendChild(it);
+    });
+    scaleFilm();
+  }
+  function scaleFilm(){
+    $$("#film .film-item .holder").forEach(h=>{
+      const k=h.clientWidth/1280;
+      h.querySelector(".mini").style.transform=`scale(${k})`;
+    });
+  }
+  function updateThumb(i){
+    const it=$$("#film .film-item")[i]; if(!it)return;
+    const mini=it.querySelector(".mini"); mini.innerHTML="";
+    mini.appendChild(Deck.slideEl(Deck.parseSlide(A.chunks[i]),i,A.chunks.length,A.brand)).classList.add("is-active");
+    scaleFilm();
+  }
+
+  /* ── 선택 ───────────────────────────────── */
+  function select(i){
+    A.cur=Math.max(0,Math.min(A.chunks.length-1,i));
+    $("#editor").value=A.chunks[A.cur]||"";
+    $$("#film .film-item").forEach((it,idx)=>it.classList.toggle("cur",idx===A.cur));
+    const el=$$("#film .film-item")[A.cur]; el&&el.scrollIntoView({block:"nearest"});
+    $("#s-pos").textContent=`${A.cur+1} / ${A.chunks.length}`;
+    renderPreview();
+  }
+
+  /* ── 편집 반영 ──────────────────────────── */
+  let saveTimer=null;
+  $("#editor").addEventListener("input",e=>{
+    A.chunks[A.cur]=e.target.value;
+    A.dirty=true; setDot(false);
+    renderPreview(); updateThumb(A.cur);
+    A.brand=(fullMd().match(/^#\s+(.+)$/m)?.[1]||"").slice(0,40);
+    if(A.dir){clearTimeout(saveTimer);saveTimer=setTimeout(save,1400);}
+  });
+
+  /* ── 슬라이드 관리 ──────────────────────── */
+  $("#b-add").onclick=()=>{A.chunks.splice(A.cur+1,0,STARTER);renderFilm();select(A.cur+1);markDirty();$("#editor").focus();};
+  $("#b-dup").onclick=()=>{A.chunks.splice(A.cur+1,0,A.chunks[A.cur]);renderFilm();select(A.cur+1);markDirty();};
+  $("#b-del").onclick=()=>{if(A.chunks.length<=1){toast("마지막 슬라이드는 삭제할 수 없어요");return;}A.chunks.splice(A.cur,1);renderFilm();select(Math.min(A.cur,A.chunks.length-1));markDirty();};
+  $("#b-up").onclick=()=>move(-1);
+  $("#b-down").onclick=()=>move(1);
+  function move(d){const j=A.cur+d;if(j<0||j>=A.chunks.length)return;[A.chunks[A.cur],A.chunks[j]]=[A.chunks[j],A.chunks[A.cur]];renderFilm();select(j);markDirty();}
+
+  /* ── 레이아웃 지시어 ────────────────────── */
+  $("#b-layout").onchange=e=>{
+    const v=e.target.value; e.target.value="";
+    if(!v)return;
+    if(v==="__cols"){insertAtCursor("\n+++\n");renderAndThumb();return;}
+    if(v==="__plain"){setDirective(null);return;}
+    if(v==="__bg"){pickImage(true);return;}
+    setDirective(v);
+  };
+  function setDirective(token){
+    let c=A.chunks[A.cur], lines=c.split("\n");
+    let di=lines.findIndex(l=>l.trim()!=="");
+    const isDir = di>=0 && /^\s*<!--.*-->\s*$/.test(lines[di]);
+    if(token===null){ if(isDir)lines.splice(di,1); }
+    else{
+      const dir=`<!-- ${token} -->`;
+      if(isDir)lines[di]=dir; else lines.splice(Math.max(di,0),0,dir);
+    }
+    A.chunks[A.cur]=lines.join("\n").replace(/^\n+/,"");
+    $("#editor").value=A.chunks[A.cur]; renderAndThumb(); markDirty();
+  }
+
+  /* ── 서식 버튼 ──────────────────────────── */
+  $$("#fmtbar .fbtn").forEach(b=>b.onclick=()=>fmt(b.dataset.fmt));
+  function fmt(kind){
+    const ta=$("#editor"); const s=ta.selectionStart,e=ta.selectionEnd;
+    const sel=ta.value.slice(s,e);
+    const wraps={bold:["**","**"],em:["*","*"]};
+    const prefixes={kicker:"^ ",h2:"## ",ul:"- ",quote:"> ",stat:":: "};
+    if(wraps[kind]){const[a,b]=wraps[kind];replaceSel(ta,a+(sel||"강조 텍스트")+b);}
+    else if(prefixes[kind]){linePrefix(ta,prefixes[kind]);}
+    else if(kind==="cols"){replaceSel(ta,(sel?sel:"")+"\n+++\n");}
+    else if(kind==="note"){ta.value=ta.value.replace(/\s*$/,"")+"\n\n???\n발표 멘트(나만 보임)";}
+    commit(ta);
+  }
+  function replaceSel(ta,text){const s=ta.selectionStart,e=ta.selectionEnd;ta.value=ta.value.slice(0,s)+text+ta.value.slice(e);ta.selectionStart=ta.selectionEnd=s+text.length;ta.focus();}
+  function linePrefix(ta,pre){const s=ta.selectionStart;const ls=ta.value.lastIndexOf("\n",s-1)+1;ta.value=ta.value.slice(0,ls)+pre+ta.value.slice(ls);ta.selectionStart=ta.selectionEnd=s+pre.length;ta.focus();}
+  function insertAtCursor(text){const ta=$("#editor");replaceSel(ta,text);}
+  function commit(ta){A.chunks[A.cur]=ta.value;renderAndThumb();markDirty();}
+  function renderAndThumb(){renderPreview();updateThumb(A.cur);}
+
+  /* ── 이미지 삽입 ────────────────────────── */
+  $("#b-img").onclick=()=>pickImage(false);
+  function pickImage(asBg){
+    const inp=document.createElement("input"); inp.type="file"; inp.accept="image/*";
+    inp.onchange=async()=>{
+      const file=inp.files[0]; if(!file)return;
+      let path;
+      if(A.dir){
+        try{
+          const assets=await A.dir.getDirectoryHandle("assets",{create:true});
+          const name=Date.now()+"-"+file.name.replace(/[^\w.\-]/g,"_");
+          const fh=await assets.getFileHandle(name,{create:true});
+          const w=await fh.createWritable(); await w.write(file); await w.close();
+          path="assets/"+name;
+        }catch(err){toast("이미지 저장 실패: "+err.message);return;}
+      }else{
+        path=await new Promise(r=>{const fr=new FileReader();fr.onload=()=>r(fr.result);fr.readAsDataURL(file);});
+        toast("폴더 미연결 — 이미지를 파일에 내장했습니다('폴더 연결' 시 assets/ 로 저장)");
+      }
+      const alt=file.name.replace(/\.[^.]+$/,"");
+      if(asBg){ setDirective(`bg:${path}`); }
+      else { insertAtCursor(`\n\n![${alt}](${path})\n`); commit($("#editor")); }
+    };
+    inp.click();
+  }
+
+  /* ── 저장 / 폴더 연결 ───────────────────── */
+  const canFS = "showDirectoryPicker" in window;
+  if(!canFS){ $("#b-connect").style.display="none"; $("#b-save").innerHTML='<span class="ic">⬇</span>slides.md 내려받기'; }
+  $("#b-connect").onclick=async()=>{
+    try{
+      A.dir=await window.showDirectoryPicker({mode:"readwrite"});
+      // 폴더의 slides.md 가 있으면 불러올지 제안
+      try{
+        const fh=await A.dir.getFileHandle("slides.md");
+        const txt=await (await fh.getFile()).text();
+        if(txt.trim() && confirm("연결한 폴더의 slides.md 를 불러올까요? (현재 편집 내용은 대체됩니다)")){
+          A.chunks=Deck.splitSlides(txt); A.brand=(txt.match(/^#\s+(.+)$/m)?.[1]||"").slice(0,40);
+          renderFilm(); select(0);
+        }
+      }catch{}
+      $("#s-mode").textContent="📁 폴더 연결됨 · 자동 저장";
+      setFile("폴더에 연결됨 — 저장 시 slides.md 갱신");
+      toast("폴더 연결 완료 · 이제 저장·이미지가 폴더에 기록됩니다");
+      save();
+    }catch(e){ /* 사용자가 취소 */ }
+  };
+  $("#b-save").onclick=save;
+  async function save(){
+    const md=fullMd();
+    if(A.dir){
+      try{
+        const fh=await A.dir.getFileHandle("slides.md",{create:true});
+        const w=await fh.createWritable(); await w.write(md); await w.close();
+        A.dirty=false; setDot(true); setFile("저장됨 ✓ "+new Date().toLocaleTimeString("ko-KR"));
+      }catch(e){ toast("저장 실패: "+e.message); }
+    }else{
+      const blob=new Blob([md],{type:"text/markdown"});
+      const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="slides.md"; a.click();
+      setDot(true); toast("slides.md 를 내려받았습니다");
+    }
+  }
+  function markDirty(){A.dirty=true;setDot(false);if(A.dir){clearTimeout(saveTimer);saveTimer=setTimeout(save,1400);}}
+  function setDot(saved){const d=$("#s-dot");d.classList.toggle("saved",saved);}
+  function setFile(t){$("#s-file").textContent=t;}
+
+  /* ── 발표 / 전체화면 ────────────────────── */
+  let pIdx=0;
+  $("#b-present").onclick=()=>openPresent(A.cur);
+  function openPresent(i){
+    const sc=$("#present-scaler"); sc.innerHTML="";
+    A.chunks.forEach((c,k)=>sc.appendChild(Deck.slideEl(Deck.parseSlide(c),k,A.chunks.length,A.brand)));
+    $("#present").classList.add("show"); fitPresent();
+    setPresent(i);
+    $("#present").requestFullscreen?.().catch(()=>{});
+  }
+  function fitPresent(){const k=Math.min(innerWidth/1280,innerHeight/720);const sc=$("#present-scaler");sc.style.transform=`scale(${k})`;sc.style.left=`${(innerWidth-1280*k)/2}px`;sc.style.top=`${(innerHeight-720*k)/2}px`;}
+  function setPresent(i){const els=$("#present-scaler").children;pIdx=Math.max(0,Math.min(els.length-1,i));[...els].forEach((e,k)=>{e.classList.toggle("is-active",k===pIdx);e.classList.toggle("prev",k<pIdx);});}
+  function presentGo(d){setPresent(pIdx+d);}
+  function closePresent(){$("#present").classList.remove("show");document.fullscreenElement&&document.exitFullscreen?.();select(pIdx);}
+
+  /* ── 개요 ───────────────────────────────── */
+  $("#b-ov").onclick=openOverview;
+  $("#ov-close").onclick=()=>$("#ov").classList.remove("show");
+  function openOverview(){
+    const g=$("#ov-grid"); g.innerHTML="";
+    A.chunks.forEach((c,i)=>{
+      const t=document.createElement("div"); t.className="thumb";
+      const mini=document.createElement("div"); mini.className="mini";
+      mini.appendChild(Deck.slideEl(Deck.parseSlide(c),i,A.chunks.length,A.brand)).classList.add("is-active");
+      t.appendChild(mini); t.insertAdjacentHTML("beforeend",`<span class="num">${i+1}</span>`);
+      t.onclick=()=>{$("#ov").classList.remove("show");select(i);};
+      g.appendChild(t);
+    });
+    $("#ov").classList.add("show");
+    requestAnimationFrame(()=>$$("#ov .thumb .mini").forEach(m=>{m.style.transform=`scale(${m.parentElement.clientWidth/1280})`;}));
+  }
+
+  /* ── 인쇄: deck.html 새 탭에서(저장본 기준) ── */
+  $("#b-print").onclick=()=>{
+    if(A.dirty&&A.dir) save();
+    toast("새 탭의 발표 데크에서 P(인쇄)를 누르세요");
+    window.open("deck.html","_blank");
+  };
+
+  /* ── 키보드 ─────────────────────────────── */
+  addEventListener("keydown",e=>{
+    if($("#present").classList.contains("show")){
+      if(e.key==="ArrowRight"||e.key===" ")presentGo(1);
+      else if(e.key==="ArrowLeft")presentGo(-1);
+      else if(e.key==="Escape")closePresent();
+      else return; e.preventDefault(); return;
+    }
+    if($("#ov").classList.contains("show")&&e.key==="Escape"){$("#ov").classList.remove("show");return;}
+    const inText=document.activeElement===$("#editor");
+    if((e.metaKey||e.ctrlKey)&&e.key==="s"){e.preventDefault();save();return;}
+    if(inText)return;
+    if(e.key==="ArrowDown"||e.key==="ArrowRight"){select(A.cur+1);e.preventDefault();}
+    else if(e.key==="ArrowUp"||e.key==="ArrowLeft"){select(A.cur-1);e.preventDefault();}
+  });
+  addEventListener("resize",()=>{fitPreview();scaleFilm();if($("#present").classList.contains("show"))fitPresent();});
+  addEventListener("beforeunload",e=>{if(A.dirty){e.preventDefault();e.returnValue="";}});
+
+  function toast(msg){const t=$("#toast");t.textContent=msg;t.classList.add("show");clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove("show"),2600);}
+
+  load();
+  </script>
+</body>
+</html>

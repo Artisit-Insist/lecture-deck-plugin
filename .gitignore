@@ -1,0 +1,15 @@
+# 빌드 산출물(스킬이 강의안 폴더에서 생성하는 것들)
+deck.html
+dist/
+*.pdf
+
+# OS / 에디터
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# 강의안 작업물(사용자 콘텐츠는 커밋하지 않음)
+강사노트.md
+*_읽기용.md

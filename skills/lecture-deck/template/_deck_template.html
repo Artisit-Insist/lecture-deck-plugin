@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>강의 데크</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" />
+<link rel="stylesheet" href="slides.css" />
+<!--
+  ┌─────────────────────────────────────────────────────────────┐
+  │  HTML 강의 플러그인 · deck.html (엔진)                          │
+  │  · 콘텐츠는 건드리지 않습니다. 슬라이드는 slides.md 에서 작성.   │
+  │  · 서버로 열면 slides.md 를 실시간 fetch, 더블클릭(file://)이면  │
+  │    아래 <script id="md-fallback"> 에 넣어둔 사본을 사용합니다.   │
+  │  단축키: ← → 이동 · F 전체화면 · O 한눈에보기 · S 발표자노트     │
+  │         P 인쇄(배포용 PDF) · . 검은화면 · Home/End 처음/끝       │
+  └─────────────────────────────────────────────────────────────┘
+-->
+<style>
+/* :root 테마는 slides.css 제공 */
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--stage-bg);
+    font-family:var(--font-sans);
+    color:var(--fg);
+    overflow:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+
+  /* ── 무대: 슬라이드를 화면 중앙에 비율 유지하며 배치 ── */
+  #stage{position:fixed;inset:0;overflow:hidden}
+  #scaler{width:var(--slide-w);height:var(--slide-h);position:absolute;left:0;top:0;transform-origin:top left}
+
+/* .slide 비주얼은 slides.css 제공 */
+
+  /* ── 진행바(화면 하단 고정) ─────────────────── */
+  #progress{position:fixed;left:0;bottom:0;height:3px;background:var(--accent);width:0;transition:width .25s ease;z-index:40}
+
+  /* ── HUD(슬라이드 번호 우상단) ──────────────── */
+  #counter{position:fixed;top:18px;right:22px;z-index:40;font-size:13px;color:#fff;background:rgba(0,0,0,.45);padding:4px 11px;border-radius:99px;font-variant-numeric:tabular-nums;backdrop-filter:blur(6px)}
+
+  /* ── 마우스 따라오는 옅은 원(커서 글로우) ── */
+  #cursorglow{position:fixed;left:0;top:0;width:170px;height:170px;margin:-85px 0 0 -85px;border-radius:50%;
+    pointer-events:none;z-index:30;opacity:0;
+    background:radial-gradient(circle, color-mix(in srgb,var(--accent) 32%, transparent) 0%, color-mix(in srgb,var(--accent) 11%, transparent) 42%, transparent 70%);
+    transition:opacity .4s ease;will-change:transform}
+  body.has-cursor #cursorglow{opacity:.5}
+  body.overview #cursorglow,body.blackout #cursorglow{opacity:0}
+  @media (hover:none){#cursorglow{display:none}}   /* 터치기기에서만 숨김(모션최소화 설정과 무관) */
+
+  /* ── 도움말 / 힌트 ──────────────────────────── */
+  #hint{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:40;font-size:12.5px;color:rgba(255,255,255,.75);background:rgba(0,0,0,.4);padding:6px 14px;border-radius:99px;backdrop-filter:blur(6px);transition:opacity .4s;white-space:nowrap}
+  #hint.hide{opacity:0;pointer-events:none}
+  kbd{font-family:var(--font-mono);background:rgba(255,255,255,.18);border-radius:4px;padding:1px 5px;font-size:11px}
+
+  /* ── 한눈에 보기(Overview) ──────────────────── */
+  body.overview #stage{display:none}
+  #grid{display:none;position:fixed;inset:0;overflow:auto;background:#15171d;padding:34px;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:20px;align-content:start}
+  body.overview #grid{display:grid}
+  .thumb{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;cursor:pointer;background:#000;border:2px solid transparent;transition:border-color .15s,transform .15s}
+  .thumb:hover{transform:translateY(-3px)}
+  .thumb.cur{border-color:var(--accent)}
+  .thumb .mini{position:absolute;top:0;left:0;width:var(--slide-w);height:var(--slide-h);transform-origin:top left;pointer-events:none}
+  .thumb .num{position:absolute;bottom:6px;right:8px;z-index:2;font-size:12px;color:#fff;background:rgba(0,0,0,.6);padding:1px 7px;border-radius:99px}
+
+  /* ── 발표자 노트 패널 ───────────────────────── */
+  #notes{display:none;position:fixed;right:0;bottom:0;width:380px;max-height:42vh;overflow:auto;background:#0c0d11;color:#e5e7eb;padding:18px 22px;font-size:15px;line-height:1.55;z-index:45;border-top-left-radius:12px;box-shadow:-8px -8px 30px rgba(0,0,0,.4)}
+  body.notes #notes{display:block}
+  #notes h4{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#8b93a7;margin-bottom:8px}
+  #notes:empty::after{content:"이 슬라이드에는 발표자 노트가 없습니다.";color:#8b93a7}
+
+  /* ── 검은 화면(주의 집중) ───────────────────── */
+  body.blackout #stage,body.blackout #progress,body.blackout #counter,body.blackout #hint{visibility:hidden}
+  body.blackout{background:#000}
+
+  /* ── 로딩/에러 ──────────────────────────────── */
+  #boot{position:fixed;inset:0;display:grid;place-items:center;color:#cbd5e1;font-size:15px;z-index:60}
+  #boot .err{max-width:560px;line-height:1.6;background:#1f2230;padding:24px 28px;border-radius:12px;border:1px solid #343849}
+
+  /* ─────────────────────────────────────────────
+     인쇄(배포용 PDF): 모든 슬라이드를 한 페이지씩 펼침
+     브라우저 인쇄 → 대상 'PDF로 저장' → 용지 가로/A4, 배경 그래픽 켜기
+  ───────────────────────────────────────────── */
+  /* 16:9 페이지(13.333in × 7.5in = 1280×720px @96dpi) → 슬라이드가 페이지에 꽉 참(여백 없음) */
+  @page{size:13.333in 7.5in;margin:0}
+  @media print{
+    body{background:#000;overflow:visible}
+    #stage,#progress,#counter,#hint,#grid,#notes,#boot{display:none!important}
+    #print{display:block!important}
+    .p-slide{width:13.333in;height:7.5in;page-break-after:always;position:relative;overflow:hidden}
+    .p-slide .scaler{width:var(--slide-w);height:var(--slide-h);transform:none!important;position:absolute;left:0;top:0}
+    .p-slide .slide{display:flex;position:absolute;inset:0;border-radius:0}
+  }
+  #print{display:none}
+</style>
+</head>
+<body>
+  <div id="boot">데크를 불러오는 중…</div>
+  <div id="cursorglow" aria-hidden="true"></div>
+
+  <div id="stage" aria-live="polite">
+    <div id="scaler"></div>
+  </div>
+
+  <div id="grid" role="list" aria-label="슬라이드 한눈에 보기"></div>
+  <div id="print"></div>
+
+  <div id="progress"></div>
+  <div id="counter">– / –</div>
+  <aside id="notes"></aside>
+  <div id="hint" class="hide">
+    클릭=다음 · 우클릭=이전 · <kbd>←</kbd><kbd>→</kbd> · <kbd>F</kbd> 전체화면 · <kbd>O</kbd> 한눈에 · <kbd>S</kbd> 노트 · <kbd>P</kbd> 인쇄
+  </div>
+
+  <!-- file:// 더블클릭용 사본. 서버에서 열면 무시되고 slides.md 를 실시간으로 읽습니다.
+       (배포·오프라인 강의장 대비. 내용을 직접 넣으려면 아래 주석을 slides.md 내용으로 채우세요.) -->
+  <script type="text/markdown" id="md-fallback">
+<!-- FALLBACK_START -->
+<!-- 여기에 slides.md 내용이 빌드 시 자동 복사됩니다. 비어 있으면 서버 모드에서만 동작합니다. -->
+<!-- FALLBACK_END -->
+  </script>
+
+<script src="engine.js"></script>
+<script>
+"use strict";
+/* ═══════════════════════════════════════════════════════════════
+   1) 미니 마크다운 파서 (의존성 0, 강의 슬라이드에 필요한 문법만)
+   지원: # 제목, **굵게**, *강조*, `코드`, ~~취소~~, [링크](url),
+        ![alt](src "캡션"), - / 1. 목록, > 인용(+ — 출처),
+        | 표 |, ```코드블록```, --- (슬라이드 구분),
+        +++ (2단 컬럼 분할), <!-- 디렉티브 -->, ??? (발표자 노트)
+═══════════════════════════════════════════════════════════════ */
+/* 파서(esc/inline/blocks/parseSlide/splitSlides)는 engine.js(window.Deck) 제공 */
+
+/* ═══════════════════════════════════════════════════════════════
+   2) 렌더링 & 내비게이션
+═══════════════════════════════════════════════════════════════ */
+const state={slides:[],cur:0,brand:""};
+const $scaler=document.getElementById("scaler");
+const $grid=document.getElementById("grid");
+const $print=document.getElementById("print");
+const $counter=document.getElementById("counter");
+const $progress=document.getElementById("progress");
+const $notes=document.getElementById("notes");
+
+/* slideEl 은 engine.js 제공 */
+
+function render(){
+  $scaler.innerHTML="";
+  state.slides.forEach((s,i)=>$scaler.appendChild(slideEl(s,i,state.slides.length,state.brand)));
+  buildGrid();
+  buildPrint();
+  fit();
+}
+
+function buildGrid(){
+  $grid.innerHTML="";
+  state.slides.forEach((s,i)=>{
+    const t=document.createElement("div");
+    t.className="thumb";t.setAttribute("role","listitem");
+    const mini=document.createElement("div");mini.className="mini";
+    mini.appendChild(slideEl(s,i,state.slides.length,state.brand)).classList.add("is-active");
+    t.appendChild(mini);
+    t.insertAdjacentHTML("beforeend",`<span class="num">${i+1}</span>`);
+    t.onclick=()=>{go(i);toggleOverview(false);};
+    $grid.appendChild(t);
+  });
+  scaleThumbs();
+}
+function scaleThumbs(){
+  document.querySelectorAll("#grid .thumb").forEach(t=>{
+    const w=t.clientWidth, scale=w/1280;
+    t.querySelector(".mini").style.transform=`scale(${scale})`;
+  });
+}
+
+function buildPrint(){
+  $print.innerHTML="";
+  state.slides.forEach((s,i)=>{
+    const page=document.createElement("div");page.className="p-slide";
+    const sc=document.createElement("div");sc.className="scaler";
+    const el=slideEl(s,i,state.slides.length,state.brand);el.classList.add("is-active");
+    sc.appendChild(el);page.appendChild(sc);$print.appendChild(page);
+    // A4 가로 인쇄 영역(297mm×209mm)에 1280×720 맞추기
+    requestAnimationFrame(()=>{
+      const pw=page.clientWidth||1122;const scale=pw/1280;
+      sc.style.transform=`scale(${scale})`;
+    });
+  });
+}
+
+function fit(){
+  const vw=innerWidth, vh=innerHeight;
+  const scale=Math.min(vw/1280, vh/720);
+  const left=(vw-1280*scale)/2, top=(vh-720*scale)/2;
+  $scaler.style.transform=`scale(${scale})`;
+  $scaler.style.left=`${left}px`;
+  $scaler.style.top=`${top}px`;
+}
+
+function go(i){
+  state.cur=Math.max(0,Math.min(state.slides.length-1,i));
+  [...$scaler.children].forEach((el,idx)=>{
+    el.classList.toggle("is-active",idx===state.cur);
+    el.classList.toggle("prev",idx<state.cur);
+  });
+  const n=state.cur+1,T=state.slides.length;
+  $counter.textContent=`${n} / ${T}`;
+  $progress.style.width=`${(n/T)*100}%`;
+  $notes.innerHTML = state.slides[state.cur].notes
+      ? `<h4>발표자 노트</h4>${blocks(state.slides[state.cur].notes)}` : "";
+  document.querySelectorAll("#grid .thumb").forEach((t,idx)=>t.classList.toggle("cur",idx===state.cur));
+  if(location.hash!==`#s${n}`) history.replaceState(null,"",`#s${n}`);
+  document.body.classList.remove("blackout");
+}
+const next=()=>go(state.cur+1), prev=()=>go(state.cur-1);
+
+function toggleOverview(on){
+  const v = on===undefined ? !document.body.classList.contains("overview") : on;
+  document.body.classList.toggle("overview",v);
+  if(v) scaleThumbs();
+}
+function toggleNotes(){document.body.classList.toggle("notes");}
+function toggleFull(){ if(!document.fullscreenElement)document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); }
+
+/* ═══════════════════════════════════════════════════════════════
+   3) 입력(키보드 · 터치 · 해시)
+═══════════════════════════════════════════════════════════════ */
+addEventListener("keydown",e=>{
+  if(e.metaKey||e.ctrlKey||e.altKey) return;
+  const k=e.key, c=e.code;   // 글자 단축키는 e.code(물리 키)로 — 한/영 상태 무관
+  if(k==="ArrowRight"||k==="PageDown"||k===" "||c==="Space") next();
+  else if(k==="ArrowLeft"||k==="PageUp") prev();
+  else if(k==="Home") go(0);
+  else if(k==="End") go(state.slides.length-1);
+  else if(c==="KeyF") toggleFull();
+  else if(c==="KeyO") toggleOverview();
+  else if(c==="KeyS") toggleNotes();
+  else if(c==="KeyP") print();
+  else if(c==="Period"||k===".") document.body.classList.toggle("blackout");
+  else if(c==="Slash"||k==="?"||k==="/") document.getElementById("hint").classList.toggle("hide");
+  else if(k==="Escape") toggleOverview(false);
+  else return;
+  e.preventDefault();
+});
+let tx=0;
+addEventListener("touchstart",e=>tx=e.touches[0].clientX,{passive:true});
+addEventListener("touchend",e=>{const dx=e.changedTouches[0].clientX-tx;if(Math.abs(dx)>50)dx<0?next():prev();});
+// 마우스/포인터로 넘기기 — 좌클릭=다음, 우클릭=이전 (슬라이드 링크는 그대로, 개요 모드 제외)
+(function(){var st=document.getElementById("stage");if(!st)return;
+  st.addEventListener("click",function(e){if(document.body.classList.contains("overview"))return;if(e.target.closest("a"))return;next();});
+  st.addEventListener("contextmenu",function(e){if(document.body.classList.contains("overview"))return;e.preventDefault();prev();});
+})();
+
+// 마우스 따라오는 옅은 원 — GSAP 없이 lerp 로 부드럽게(쫀득) 따라오기. 마우스 기기에서만.
+(function(){
+  if(!matchMedia("(hover:hover) and (pointer:fine)").matches) return;
+  const glow=document.getElementById("cursorglow"); if(!glow) return;
+  let mx=innerWidth/2, my=innerHeight/2, gx=mx, gy=my, raf=null;
+  addEventListener("pointermove",e=>{
+    mx=e.clientX; my=e.clientY;
+    document.body.classList.add("has-cursor");
+    if(!raf) raf=requestAnimationFrame(loop);
+  },{passive:true});
+  function loop(){
+    gx+=(mx-gx)*0.16; gy+=(my-gy)*0.16;
+    glow.style.transform=`translate3d(${gx}px,${gy}px,0)`;
+    if(Math.abs(mx-gx)>0.4||Math.abs(my-gy)>0.4){ raf=requestAnimationFrame(loop); }
+    else{ glow.style.transform=`translate3d(${mx}px,${my}px,0)`; raf=null; }
+  }
+})();
+addEventListener("resize",()=>{fit();scaleThumbs();});
+addEventListener("hashchange",()=>{const m=location.hash.match(/^#s(\d+)$/);if(m)go(+m[1]-1);});
+
+// 힌트는 기본 숨김 — '?' 키로만 표시(첫 화면을 깔끔하게)
+
+/* ═══════════════════════════════════════════════════════════════
+   4) 부팅: slides.md fetch → 실패 시 인라인 사본
+═══════════════════════════════════════════════════════════════ */
+function boot(md,source){
+  const slides=splitSlides(md).map(parseSlide);
+  if(!slides.length){fail("슬라이드가 비어 있습니다. slides.md 를 확인하세요.");return;}
+  // 첫 슬라이드 h1 을 브랜드/푸터 기본값으로
+  state.brand = (md.match(/^#\s+(.+)$/m)?.[1]||"").slice(0,40);
+  state.slides=slides;
+  render();
+  const m=location.hash.match(/^#s(\d+)$/);
+  go(m?+m[1]-1:0);
+  document.getElementById("boot").style.display="none";
+  console.log(`[deck] ${slides.length} slides · source=${source}`);
+}
+function fail(msg){
+  document.getElementById("boot").innerHTML=
+    `<div class="err"><b>데크를 불러오지 못했습니다.</b><br><br>${msg}<br><br>
+     · 가장 쉬운 방법: 이 폴더에서 터미널에 <code style="color:#fbbf24">python3 -m http.server</code> 실행 후
+     <code style="color:#fbbf24">localhost:8000/deck.html</code> 접속<br>
+     · 또는 slides.md 내용을 deck.html 의 <code>id="md-fallback"</code> 블록에 넣어 더블클릭으로 여세요.</div>`;
+  document.getElementById("boot").style.display="grid";
+}
+(function start(){
+  const fbRaw=document.getElementById("md-fallback").textContent;
+  // 내장 표시 주석(FALLBACK_START/END)만 제거 — 진짜 <!-- title --> 등 디렉티브는 보존
+  const fb=fbRaw.replace(/<!--\s*FALLBACK_(?:START|END)\s*-->/g,"").trim();
+  const hasFallback = fb.replace(/<!--[\s\S]*?-->/g,"").trim().length>0;
+  fetch("slides.md",{cache:"no-store"})
+    .then(r=>{if(!r.ok)throw 0;return r.text();})
+    .then(md=>boot(md,"slides.md"))
+    .catch(()=>{
+      if(hasFallback) boot(fb,"inline-fallback");
+      else fail("file:// 로 직접 열면 slides.md 를 읽을 수 없습니다(브라우저 보안 정책).");
+    });
+})();
+</script>
+</body>
+</html>
