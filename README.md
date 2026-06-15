@@ -33,14 +33,14 @@ PPTX 대신 텍스트로 작성하고, Claude에게 말로 시켜 발표용 `dec
 Claude Code에서:
 
 ```
-/plugin marketplace add <your-github-username>/lecture-deck-plugin
+/plugin marketplace add Artisit-Insist/lecture-deck-plugin
 /plugin install lecture-deck@lecture-deck-marketplace
 ```
 
 ### B. 스킬만 직접 복사
 
 ```bash
-git clone https://github.com/<your-github-username>/lecture-deck-plugin.git
+git clone https://github.com/Artisit-Insist/lecture-deck-plugin.git
 cp -R lecture-deck-plugin/skills/lecture-deck ~/.claude/skills/lecture-deck
 ```
 
