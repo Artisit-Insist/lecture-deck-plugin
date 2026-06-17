@@ -1,6 +1,6 @@
 {
   "name": "lecture-deck",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "마크다운으로 다크 'Obsidian' 스타일 HTML 강의안(슬라이드 데크)을 만드는 Claude Code 스킬. 자립형 deck.html(더블클릭), 통계 출처 표기(@src), 강사 노트, 16:9 PDF 내보내기, 카드 호버·커서 글로우 인터랙션 포함.",
   "author": {
     "name": "황상현 (Sanghyun Hwang)",

@@ -15,6 +15,8 @@ PPTX 대신 텍스트로 작성하고, Claude에게 말로 시켜 발표용 `dec
 |:---:|:---:|:---:|
 | ![표지](docs/01-cover.png) | ![콘텐츠](docs/02-content.png) | ![카드](docs/03-cards.png) |
 
+> 📂 실제 소스·빌드본은 [`examples/all-features`](examples/all-features) — `slides.md`(문법 예시)와 더블클릭용 `deck.html`.
+
 ---
 
 ## ✨ 특징
